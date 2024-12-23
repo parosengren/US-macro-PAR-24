@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import fredapi
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 # FRED API Key (REPLACE THIS WITH YOUR ACTUAL KEY)
 FRED_API_KEY = "73d91c54519573fad1e3a2bb990af710"
 
 fred = fredapi.Fred(api_key=FRED_API_KEY)
-
-from datetime import datetime, timedelta
 
 @st.cache_data
 def get_fred_data(series_id, title):
@@ -84,6 +83,8 @@ if "series" in selected_data:  # Handle combined CPI case (Inflation - CPI)
     for series_id, series_title in selected_data["series"]:
         df = get_fred_data(series_id, series_title.split(" ")[0])
         if df is not None:
+            # Filter data by the timeline selector
+            df = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
             df = selected_data["yoy_func"](df, series_title.split(" ")[0])
             if df is not None:
                 fig_cpi.add_trace(go.Scatter(x=df.index, y=df[series_title.split(" ")[0]], mode='lines', name=series_title))
@@ -100,10 +101,15 @@ if "series" in selected_data:  # Handle combined CPI case (Inflation - CPI)
     for series_id, series_title in selected_data["series"]:
         df = get_fred_data(series_id, series_title.split(" ")[0])
         if df is not None:
+            # Filter data by the timeline selector
+            df = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
             df = selected_data["yoy_func"](df, series_title.split(" ")[0])
             if df is not None:
-                # Filter for last 3 years
+                # Filter for last 3 years and sort most recent to oldest
                 df_last_3_years = df[df.index >= three_years_ago]
+                df_last_3_years = df_last_3_years.sort_index(ascending=False)
+
+                # Prepare for display
                 df_last_3_years.reset_index(inplace=True)
                 df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
                 df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
@@ -133,47 +139,43 @@ if "series" in selected_data:  # Handle combined CPI case (Inflation - CPI)
 elif "id" in selected_data:  # Handle other indicators
     df = get_fred_data(selected_data["id"], selected_data["title"])
     if df is not None:
+        # Filter data by the timeline selector
+        df = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
         if "yoy_func" in selected_data:
             df = selected_data["yoy_func"](df, selected_data["title"])
             if df is None:
                 st.warning("Error calculating YoY.")
                 st.stop()
 
-        # Filter data by the selected range
-        df_filtered = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
-        if not df_filtered.empty:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[selected_data["title"]], mode='lines'))
-            fig.update_layout(title=selected_indicator, xaxis_title="Date", yaxis_title=selected_data["title"])
-            st.plotly_chart(fig, use_container_width=True)
+        # Filter for last 3 years and sort most recent to oldest
+        df_last_3_years = df[df.index >= three_years_ago]
+        df_last_3_years = df_last_3_years.sort_index(ascending=False)
 
-            # Filter for last 3 years and display as table
-            df_last_3_years = df[df.index >= three_years_ago]
-            df_last_3_years.reset_index(inplace=True)
-            df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
-            df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
-            
-            st.subheader(f"Last 3 Years of Data for {selected_data['title']}")
-            st.table(df_last_3_years)
+        # Prepare for display
+        df_last_3_years.reset_index(inplace=True)
+        df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
+        df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
-            # Download buttons
-            csv_data = convert_df_to_csv(df_last_3_years)
-            excel_data = convert_df_to_excel(df_last_3_years)
+        # Display the table
+        st.subheader(f"Last 3 Years of Data for {selected_data['title']}")
+        st.table(df_last_3_years)
 
-            st.download_button(
-                label="Download as CSV",
-                data=csv_data,
-                file_name=f"{selected_data['title'].replace(' ', '_')}_last_3_years.csv",
-                mime="text/csv",
-            )
+        # Download buttons
+        csv_data = convert_df_to_csv(df_last_3_years)
+        excel_data = convert_df_to_excel(df_last_3_years)
 
-            st.download_button(
-                label="Download as Excel",
-                data=excel_data,
-                file_name=f"{selected_data['title'].replace(' ', '_')}_last_3_years.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        else:
-            st.warning("No data available for the selected indicator within the chosen date range.")
+        st.download_button(
+            label="Download as CSV",
+            data=csv_data,
+            file_name=f"{selected_data['title'].replace(' ', '_')}_last_3_years.csv",
+            mime="text/csv",
+        )
+
+        st.download_button(
+            label="Download as Excel",
+            data=excel_data,
+            file_name=f"{selected_data['title'].replace(' ', '_')}_last_3_years.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
     else:
         st.warning("Could not retrieve data for the selected indicator.")
