@@ -47,7 +47,7 @@ def convert_df_to_excel(df):
 st.set_page_config(page_title="US Macro Dashboard")
 st.title("US Macro Dashboard")
 
-# --- Timeline Slider ---
+# --- Timeline Selector ---
 st.header("Timeline Selector")
 min_date = datetime(2010, 1, 1).date()
 max_date = datetime.today().date()
@@ -78,7 +78,8 @@ selected_data = indicators[selected_indicator]
 
 three_years_ago = datetime.now() - timedelta(days=3 * 365)
 
-if "series" in selected_data:  # Handle combined CPI case
+if "series" in selected_data:  # Handle combined CPI case (Inflation - CPI)
+    # Create a single chart for both CPI and Core CPI
     fig_cpi = go.Figure()
     for series_id, series_title in selected_data["series"]:
         df = get_fred_data(series_id, series_title.split(" ")[0])
@@ -86,13 +87,28 @@ if "series" in selected_data:  # Handle combined CPI case
             df = selected_data["yoy_func"](df, series_title.split(" ")[0])
             if df is not None:
                 fig_cpi.add_trace(go.Scatter(x=df.index, y=df[series_title.split(" ")[0]], mode='lines', name=series_title))
-                
+            else:
+                st.warning(f"Error calculating YoY for {series_title}.")
+        else:
+            st.warning(f"Could not retrieve data for {series_title}.")
+
+    # Display the combined chart at the top
+    fig_cpi.update_layout(title="CPI and Core CPI (y/y)", xaxis_title="Date", yaxis_title="Percent Change (y/y)")
+    st.plotly_chart(fig_cpi, use_container_width=True)
+
+    # Display the tables and download buttons below the chart
+    for series_id, series_title in selected_data["series"]:
+        df = get_fred_data(series_id, series_title.split(" ")[0])
+        if df is not None:
+            df = selected_data["yoy_func"](df, series_title.split(" ")[0])
+            if df is not None:
                 # Filter for last 3 years
                 df_last_3_years = df[df.index >= three_years_ago]
                 df_last_3_years.reset_index(inplace=True)
                 df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
                 df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
-                
+
+                # Table and download buttons
                 st.subheader(f"Last 3 Years of Data for {series_title}")
                 st.table(df_last_3_years)
 
@@ -113,12 +129,6 @@ if "series" in selected_data:  # Handle combined CPI case
                     file_name=f"{series_title.replace(' ', '_')}_last_3_years.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
-            else:
-                st.warning(f"Error calculating YoY for {series_title}.")
-        else:
-            st.warning(f"Could not retrieve data for {series_title}.")
-    fig_cpi.update_layout(title="CPI and Core CPI (y/y)", xaxis_title="Date", yaxis_title="Percent Change (y/y)")
-    st.plotly_chart(fig_cpi, use_container_width=True)
 
 elif "id" in selected_data:  # Handle other indicators
     df = get_fred_data(selected_data["id"], selected_data["title"])
@@ -167,4 +177,3 @@ elif "id" in selected_data:  # Handle other indicators
             st.warning("No data available for the selected indicator within the chosen date range.")
     else:
         st.warning("Could not retrieve data for the selected indicator.")
-
