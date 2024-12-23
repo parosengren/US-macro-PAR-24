@@ -48,7 +48,7 @@ st.set_page_config(page_title="US Macro Dashboard")
 st.title("US Macro Dashboard")
 
 # --- Timeline Slider ---
-st.sidebar.header("Timeline Selector")
+st.header("Timeline Selector")
 min_date = datetime(2010, 1, 1).date()
 max_date = datetime.today().date()
 
