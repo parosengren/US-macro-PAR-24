@@ -1,1 +1,6 @@
 streamlit
+fredapi
+pandas
+plotly
+numpy
+matplotlib
