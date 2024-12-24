@@ -89,7 +89,7 @@ selected_data = indicators[selected_indicator]
 three_years_ago = datetime.now() - timedelta(days=3 * 365)
 
 if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
-    # Radio button to toggle chart type
+    # Add a radio button for chart type selection
     chart_type = st.radio(
         "Select Chart Type for CPI Chart",
         options=["Line Chart", "Bar Chart"],
@@ -98,7 +98,6 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
         key="cpi_chart_type"
     )
 
-    # Initialize the combined chart and table data
     combined_fig = go.Figure()
     data_frames = []
 
@@ -132,14 +131,19 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
                             name=series["title"]
                         )
                     )
-                # Prepare the last 3 years of data for the table
+                # Prepare data for the table
                 df_last_3_years = df[df.index >= three_years_ago]
                 if "yoy_func" in series:
                     df_last_3_years = series["yoy_func"](df_last_3_years, series["title"])
-                df_last_3_years.reset_index(inplace=True)
-                df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
-                df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
-                data_frames.append((series["title"], df_last_3_years))
+
+                if df_last_3_years is not None and not df_last_3_years.empty:
+                    # Reset the index and sort by date
+                    df_last_3_years.reset_index(inplace=True)
+                    df_last_3_years.rename(columns={"index": "Datetime"}, inplace=True)
+                    df_last_3_years.sort_values(by="Datetime", ascending=False, inplace=True)
+                    df_last_3_years["Datetime"] = df_last_3_years["Datetime"].dt.strftime("%m/%d/%Y")
+                    df_last_3_years.rename(columns={"Datetime": "Date"}, inplace=True)
+                    data_frames.append((series["title"], df_last_3_years))
             else:
                 st.warning(f"No data available for {series['title']} within the selected date range.")
         else:
@@ -177,6 +181,7 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
             file_name=f"{title.replace(' ', '_')}_last_3_years.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
 
 elif "series" in selected_data:  # Handle Employment and other series-based indicators
     for series in selected_data["series"]:
