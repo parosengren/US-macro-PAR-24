@@ -89,29 +89,50 @@ selected_data = indicators[selected_indicator]
 three_years_ago = datetime.now() - timedelta(days=3 * 365)
 
 if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
+    # Radio button to toggle chart type
+    chart_type = st.radio(
+        "Select Chart Type for CPI Chart",
+        options=["Line Chart", "Bar Chart"],
+        index=0,  # Default to Line Chart
+        horizontal=True,
+        key="cpi_chart_type"
+    )
+
+    # Initialize the combined chart and table data
     combined_fig = go.Figure()
     data_frames = []
 
     for series in selected_data["series"]:
+        # Fetch data for the current series
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
-            # Filter data by the timeline selector
+            # Filter data based on the selected date range
             df_filtered = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
 
-            # Apply year-over-year calculation
+            # Apply year-over-year calculation if applicable
             if "yoy_func" in series:
                 df_filtered = series["yoy_func"](df_filtered, series["title"])
 
             if df_filtered is not None and not df_filtered.empty:
-                combined_fig.add_trace(
-                    go.Scatter(
-                        x=df_filtered.index,
-                        y=df_filtered[series["title"]],
-                        mode='lines',
-                        name=series["title"],
+                # Add trace to the chart based on the selected chart type
+                if chart_type == "Line Chart":
+                    combined_fig.add_trace(
+                        go.Scatter(
+                            x=df_filtered.index,
+                            y=df_filtered[series["title"]],
+                            mode="lines",
+                            name=series["title"]
+                        )
                     )
-                )
-                # Collect data for the table
+                elif chart_type == "Bar Chart":
+                    combined_fig.add_trace(
+                        go.Bar(
+                            x=df_filtered.index,
+                            y=df_filtered[series["title"]],
+                            name=series["title"]
+                        )
+                    )
+                # Prepare the last 3 years of data for the table
                 df_last_3_years = df[df.index >= three_years_ago]
                 if "yoy_func" in series:
                     df_last_3_years = series["yoy_func"](df_last_3_years, series["title"])
@@ -134,12 +155,12 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
         )
         st.plotly_chart(combined_fig, use_container_width=True)
 
-    # Display combined tables below the chart
+    # Display tables and download options for each series
     for title, df_last_3_years in data_frames:
         st.subheader(f"Last 3 Years of Data for {title}")
         st.table(df_last_3_years)
 
-        # Download buttons
+        # Download options
         csv_data = convert_df_to_csv(df_last_3_years)
         excel_data = convert_df_to_excel(df_last_3_years)
 
