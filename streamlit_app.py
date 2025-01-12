@@ -33,18 +33,17 @@ def calculate_cpi_yoy(df, title):
         return None
 
 ############################################################################
-# NEW FUNCTION: Calculates the monthly (1-month) difference of Nonfarm Payrolls
+# Calculates the monthly difference of Nonfarm Payrolls and multiplies by 1,000
 ############################################################################
 def calculate_monthly_change(df, title):
     """
     Resample to monthly (start of month), take the last data point each month,
-    then compute the month-to-month difference.
+    then compute the month-to-month difference, multiplied by 1,000.
     """
     try:
-        # Resample to monthly frequency and take the last value in each month
         df_m = df.resample('MS').last()
-        # Compute the 1-month difference
-        df_diff = df_m.diff()
+        # Compute the 1-month difference and multiply by 1000
+        df_diff = df_m.diff() * 1000
         df_diff.columns = [title]
         return df_diff
     except Exception as e:
@@ -84,8 +83,11 @@ indicators = {
     "GDP": {"id": "A191RL1Q225SBEA", "title": "Real GDP (SAAR)"},
     "Employment": {
         "series": [
-            {"id": "PAYEMS", "title": "Monthly Change in Nonfarm Payrolls",
-                "monthly_func": calculate_monthly_change},
+            {
+                "id": "PAYEMS",
+                "title": "Monthly Change in Nonfarm Payrolls",
+                "monthly_func": calculate_monthly_change
+            },
             {"id": "UNRATE", "title": "Unemployment Rate (%)"},
         ]
     },
@@ -125,15 +127,18 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
         # Fetch data for the current series
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
-            # Filter data based on the selected date range
-            df_filtered = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
+            # Filter by the timeline selector
+            df_filtered = df[
+                (df.index >= pd.to_datetime(start_date)) &
+                (df.index <= pd.to_datetime(end_date))
+            ]
 
-            # Apply year-over-year calculation if applicable
+            # Apply year-over-year function if applicable
             if "yoy_func" in series:
                 df_filtered = series["yoy_func"](df_filtered, series["title"])
 
             if df_filtered is not None and not df_filtered.empty:
-                # Add trace to the chart based on the selected chart type
+                # Add the trace based on chart type
                 if chart_type == "Line Chart":
                     combined_fig.add_trace(
                         go.Scatter(
@@ -151,13 +156,14 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
                             name=series["title"]
                         )
                     )
-                # Prepare data for the table
+                
+                # Prepare data for the "Last 3 Years"
                 df_last_3_years = df[df.index >= three_years_ago]
                 if "yoy_func" in series:
                     df_last_3_years = series["yoy_func"](df_last_3_years, series["title"])
 
                 if df_last_3_years is not None and not df_last_3_years.empty:
-                    # Reset the index and sort by date
+                    # Sort descending by date
                     df_last_3_years.reset_index(inplace=True)
                     df_last_3_years.rename(columns={"index": "Datetime"}, inplace=True)
                     df_last_3_years.sort_values(by="Datetime", ascending=False, inplace=True)
@@ -202,32 +208,33 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-elif "series" in selected_data:  # Handle Employment and other series-based indicators
+elif "series" in selected_data:  # Employment and other multi-series indicators
     for series in selected_data["series"]:
         st.subheader(series["title"])
 
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
-            # Filter data by the timeline selector
-            df_filtered = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
+            # Filter by the timeline
+            df_filtered = df[
+                (df.index >= pd.to_datetime(start_date)) &
+                (df.index <= pd.to_datetime(end_date))
+            ]
 
-            #############################################################
-            # If there is a custom "monthly_func", apply it (just like yoy_func).
-            #############################################################
+            # If there's a custom monthly_func, apply it
             if "monthly_func" in series:
                 df_filtered = series["monthly_func"](df_filtered, series["title"])
 
             if df_filtered is not None and not df_filtered.empty:
-                # Add a chart type selector
+                # Chart type selector
                 chart_type = st.radio(
                     f"Select Chart Type for {series['title']}",
                     options=["Line Chart", "Bar Chart"],
-                    index=0,  # Default to Line Chart
+                    index=0,
                     horizontal=True,
                     key=f"chart_type_{series['id']}_{series['title']}",
                 )
 
-                # Create the chart based on the selected type
+                # Build the chart
                 fig = go.Figure()
                 if chart_type == "Line Chart":
                     fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[series["title"]], mode='lines'))
@@ -238,63 +245,82 @@ elif "series" in selected_data:  # Handle Employment and other series-based indi
                     title=series["title"],
                     xaxis_title="Date",
                     yaxis_title=series["title"],
-                    yaxis=dict(autorange=True),  # Enable dynamic y-axis scaling
+                    yaxis=dict(autorange=True),
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Filter for last 3 years and sort most recent to oldest
+                # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                # Prepare Last 3 Years Table
+                # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                 df_last_3_years = df[df.index >= three_years_ago]
-                df_last_3_years = df_last_3_years.sort_index(ascending=False)
+                # Apply monthly_func if needed
+                if "monthly_func" in series:
+                    df_last_3_years = series["monthly_func"](df_last_3_years, series["title"])
 
-                # Prepare for display
-                df_last_3_years.reset_index(inplace=True)
-                df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
-                df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
+                if df_last_3_years is not None and not df_last_3_years.empty:
+                    # Sort descending by date
+                    df_last_3_years = df_last_3_years.sort_index(ascending=False)
 
-                st.subheader(f"Last 3 Years of Data for {series['title']}")
-                st.table(df_last_3_years)
+                    # Reset for display
+                    df_last_3_years.reset_index(inplace=True)
+                    df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
+                    df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
-                # Download buttons
-                csv_data = convert_df_to_csv(df_last_3_years)
-                excel_data = convert_df_to_excel(df_last_3_years)
+                    # -----------------------------------------------
+                    #  (Optional) Display with commas in the table
+                    # -----------------------------------------------
+                    df_display = df_last_3_years.copy()
+                    # Format the numeric column with commas
+                    # (This will not affect the CSV data, which remains numeric)
+                    df_display[series["title"]] = df_display[series["title"]].map("{:,.0f}".format)
 
-                st.download_button(
-                    label=f"Download {series['title']} as CSV",
-                    data=csv_data,
-                    file_name=f"{series['title'].replace(' ', '_')}_last_3_years.csv",
-                    mime="text/csv",
-                )
+                    st.subheader(f"Last 3 Years of Data for {series['title']}")
+                    st.table(df_display)
 
-                st.download_button(
-                    label=f"Download {series['title']} as Excel",
-                    data=excel_data,
-                    file_name=f"{series['title'].replace(' ', '_')}_last_3_years.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
+                    # -----------------------------------------------
+                    #  CSV / Excel downloads (numeric data)
+                    # -----------------------------------------------
+                    csv_data = convert_df_to_csv(df_last_3_years)
+                    excel_data = convert_df_to_excel(df_last_3_years)
+
+                    st.download_button(
+                        label=f"Download {series['title']} as CSV",
+                        data=csv_data,
+                        file_name=f"{series['title'].replace(' ', '_')}_last_3_years.csv",
+                        mime="text/csv",
+                    )
+
+                    st.download_button(
+                        label=f"Download {series['title']} as Excel",
+                        data=excel_data,
+                        file_name=f"{series['title'].replace(' ', '_')}_last_3_years.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                else:
+                    st.warning(f"No data available for {series['title']} in the last 3 years.")
             else:
-                # If df_filtered is empty or None
                 st.warning(f"No data available for {series['title']} within the selected date range.")
         else:
             st.warning(f"Could not retrieve data for {series['title']}.")
 
-elif "id" in selected_data:  # Handle single-series indicators (e.g., GDP, 10-Year Yield, S&P 500)
+elif "id" in selected_data:  # Single-series indicators (GDP, 10-Yr Yield, S&P 500, etc.)
     st.subheader(selected_data["title"])
 
     df = get_fred_data(selected_data["id"], selected_data["title"])
     if df is not None:
-        # Filter data by the timeline selector
-        df_filtered = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
+        df_filtered = df[
+            (df.index >= pd.to_datetime(start_date)) &
+            (df.index <= pd.to_datetime(end_date))
+        ]
 
         if not df_filtered.empty:
-            # Add a chart type selector
             chart_type = st.radio(
                 "Select Chart Type",
                 options=["Line Chart", "Bar Chart"],
-                index=0,  # Default to Line Chart
+                index=0,
                 horizontal=True,
             )
 
-            # Create the chart based on the selected type
             fig = go.Figure()
             if chart_type == "Line Chart":
                 fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[selected_data["title"]], mode='lines'))
@@ -305,15 +331,13 @@ elif "id" in selected_data:  # Handle single-series indicators (e.g., GDP, 10-Ye
                 title=selected_data["title"],
                 xaxis_title="Date",
                 yaxis_title=selected_data["title"],
-                yaxis=dict(autorange=True),  # Enable dynamic y-axis scaling
+                yaxis=dict(autorange=True),
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # Filter for last 3 years and sort most recent to oldest
+            # Last 3 years
             df_last_3_years = df[df.index >= three_years_ago]
             df_last_3_years = df_last_3_years.sort_index(ascending=False)
-
-            # Prepare for display
             df_last_3_years.reset_index(inplace=True)
             df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
             df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
@@ -321,7 +345,6 @@ elif "id" in selected_data:  # Handle single-series indicators (e.g., GDP, 10-Ye
             st.subheader(f"Last 3 Years of Data for {selected_data['title']}")
             st.table(df_last_3_years)
 
-            # Download buttons
             csv_data = convert_df_to_csv(df_last_3_years)
             excel_data = convert_df_to_excel(df_last_3_years)
 
