@@ -84,7 +84,6 @@ indicators = {
     "GDP": {"id": "A191RL1Q225SBEA", "title": "Real GDP (SAAR)"},
     "Employment": {
         "series": [
-            {"id": "PAYEMS", "title": "Total Jobs Added (Nonfarm Payrolls)"},
             {"id": "PAYEMS", "title": "Monthly Change in Nonfarm Payrolls",
                 "monthly_func": calculate_monthly_change},
             {"id": "UNRATE", "title": "Unemployment Rate (%)"},
