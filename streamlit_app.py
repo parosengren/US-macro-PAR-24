@@ -180,7 +180,10 @@ if selected_indicator == "Inflation - CPI":
 
     for title, df_last_3_years in data_frames:
         st.subheader(f"Last 3 Years of Data for {title}")
-        st.table(df_last_3_years)
+        # ---------------------------
+        # Use st.dataframe(...) with height ~ 300
+        # ---------------------------
+        st.dataframe(df_last_3_years, height=300)
 
         csv_data = convert_df_to_csv(df_last_3_years)
         excel_data = convert_df_to_excel(df_last_3_years)
@@ -217,18 +220,15 @@ elif "series" in selected_data:  # e.g. "Employment"
             if "monthly_func" in series:
                 df_filtered = series["monthly_func"](df_filtered, series["title"])
 
-            # --------------------------------------
-            # DEFAULT CHART SELECTION
-            # If it's PAYEMS + monthly_func => bar chart by default
-            # --------------------------------------
-            default_chart_index = 0  # 0 => "Line Chart"
+            # If it's PAYEMS => default bar
+            default_chart_index = 0
             if series["id"] == "PAYEMS" and "monthly_func" in series:
-                default_chart_index = 1  # 1 => "Bar Chart"
+                default_chart_index = 1
 
             chart_type = st.radio(
                 f"Select Chart Type for {series['title']}",
                 options=["Line Chart", "Bar Chart"],
-                index=default_chart_index,  # <-- sets default
+                index=default_chart_index,
                 horizontal=True,
                 key=f"chart_type_{series['id']}_{series['title']}",
             )
@@ -237,7 +237,7 @@ elif "series" in selected_data:  # e.g. "Employment"
                 fig = go.Figure()
                 if chart_type == "Line Chart":
                     fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[series["title"]], mode='lines'))
-                else:  # Bar Chart
+                else:
                     fig.add_trace(go.Bar(x=df_filtered.index, y=df_filtered[series["title"]]))
 
                 fig.update_layout(
@@ -259,7 +259,10 @@ elif "series" in selected_data:  # e.g. "Employment"
                     df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
                     st.subheader(f"Last 3 Years of Data for {series['title']}")
-                    st.table(df_last_3_years)
+                    # ---------------------------
+                    # st.dataframe(...) with height ~ 300
+                    # ---------------------------
+                    st.dataframe(df_last_3_years, height=300)
 
                     csv_data = convert_df_to_csv(df_last_3_years)
                     excel_data = convert_df_to_excel(df_last_3_years)
@@ -301,19 +304,16 @@ elif "id" in selected_data:
             (df.index <= pd.to_datetime(end_date))
         ]
 
-        # --------------------------------------
-        # DEFAULT CHART SELECTION
-        # If it's GDP => bar chart by default
-        # --------------------------------------
-        default_chart_index = 0  # 0 => "Line Chart"
-        if selected_data["id"] == "A191RL1Q225SBEA":  # Real GDP
-            default_chart_index = 1  # 1 => "Bar Chart"
+        # If it's GDP => default bar
+        default_chart_index = 0
+        if selected_data["id"] == "A191RL1Q225SBEA":
+            default_chart_index = 1
 
         if not df_filtered.empty:
             chart_type = st.radio(
                 "Select Chart Type",
                 options=["Line Chart", "Bar Chart"],
-                index=default_chart_index,  # <-- sets default
+                index=default_chart_index,
                 horizontal=True,
             )
 
@@ -382,7 +382,6 @@ elif "id" in selected_data:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # Filter for last 3 years and sort most recent to oldest
             df_last_3_years = df[df.index >= three_years_ago]
             df_last_3_years = df_last_3_years.sort_index(ascending=False)
             df_last_3_years.reset_index(inplace=True)
@@ -390,7 +389,10 @@ elif "id" in selected_data:
             df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
             st.subheader(f"Last 3 Years of Data for {selected_data['title']}")
-            st.table(df_last_3_years)
+            # ---------------------------
+            # st.dataframe(...) with height ~ 300
+            # ---------------------------
+            st.dataframe(df_last_3_years, height=300)
 
             csv_data = convert_df_to_csv(df_last_3_years)
             excel_data = convert_df_to_excel(df_last_3_years)
