@@ -16,8 +16,14 @@ def get_fred_data(series_id, title):
         if data is None or data.empty:
             st.warning(f"No data available for {title} (Series ID: {series_id}).")
             return None
+
         df = pd.DataFrame(data, columns=[title])
         df.index = pd.to_datetime(df.index)
+
+        # Forward-fill if it's DGS10 (10Y Treasury) or SP500
+        if series_id in ["DGS10", "SP500"]:
+            df.fillna(method="ffill", inplace=True)
+
         return df
     except Exception as e:
         st.error(f"Error fetching data for {series_id}: {e}")
