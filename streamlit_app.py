@@ -16,14 +16,8 @@ def get_fred_data(series_id, title):
         if data is None or data.empty:
             st.warning(f"No data available for {title} (Series ID: {series_id}).")
             return None
-
         df = pd.DataFrame(data, columns=[title])
         df.index = pd.to_datetime(df.index)
-
-        # Forward-fill if it's DGS10 (10Y Treasury) or SP500
-        if series_id in ["DGS10", "SP500"]:
-            df.fillna(method="ffill", inplace=True)
-
         return df
     except Exception as e:
         st.error(f"Error fetching data for {series_id}: {e}")
@@ -103,6 +97,7 @@ indicators = {
             {"id": "CPILFESL", "title": "Core CPI (y/y)", "yoy_func": calculate_cpi_yoy},
         ]
     },
+    # Updated to use "DGS10" instead of "GS10"
     "10-Year Treasury Yield": {"id": "DGS10", "title": "10-Year Treasury Yield (%)"},
     "S&P 500": {"id": "SP500", "title": "S&P 500"},
 }
@@ -133,18 +128,18 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
         # Fetch data for the current series
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
-            # Filter by the timeline selector
+            # Filter by the selected date range
             df_filtered = df[
                 (df.index >= pd.to_datetime(start_date)) &
                 (df.index <= pd.to_datetime(end_date))
             ]
 
-            # Apply year-over-year function if applicable
+            # Apply year-over-year calculation if applicable
             if "yoy_func" in series:
                 df_filtered = series["yoy_func"](df_filtered, series["title"])
 
             if df_filtered is not None and not df_filtered.empty:
-                # Add the trace based on chart type
+                # Add trace to the chart based on the selected chart type
                 if chart_type == "Line Chart":
                     combined_fig.add_trace(
                         go.Scatter(
@@ -162,8 +157,8 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
                             name=series["title"]
                         )
                     )
-                
-                # Prepare data for the "Last 3 Years"
+
+                # Prepare data for the table (last 3 years)
                 df_last_3_years = df[df.index >= three_years_ago]
                 if "yoy_func" in series:
                     df_last_3_years = series["yoy_func"](df_last_3_years, series["title"])
@@ -214,19 +209,19 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-elif "series" in selected_data:  # Employment and other multi-series indicators
+elif "series" in selected_data:  # Handle Employment and other multi-series indicators
     for series in selected_data["series"]:
         st.subheader(series["title"])
 
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
-            # Filter by the timeline
+            # Filter data by the timeline selector
             df_filtered = df[
                 (df.index >= pd.to_datetime(start_date)) &
                 (df.index <= pd.to_datetime(end_date))
             ]
 
-            # If there's a custom monthly_func, apply it
+            # If there is a custom monthly_func, apply it (e.g. Nonfarm Payrolls)
             if "monthly_func" in series:
                 df_filtered = series["monthly_func"](df_filtered, series["title"])
 
@@ -240,7 +235,6 @@ elif "series" in selected_data:  # Employment and other multi-series indicators
                     key=f"chart_type_{series['id']}_{series['title']}",
                 )
 
-                # Build the chart
                 fig = go.Figure()
                 if chart_type == "Line Chart":
                     fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[series["title"]], mode='lines'))
@@ -255,37 +249,20 @@ elif "series" in selected_data:  # Employment and other multi-series indicators
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-                # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                # Prepare Last 3 Years Table
-                # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                # Prepare the last 3 years of data
                 df_last_3_years = df[df.index >= three_years_ago]
-                # Apply monthly_func if needed
                 if "monthly_func" in series:
                     df_last_3_years = series["monthly_func"](df_last_3_years, series["title"])
 
                 if df_last_3_years is not None and not df_last_3_years.empty:
-                    # Sort descending by date
                     df_last_3_years = df_last_3_years.sort_index(ascending=False)
-
-                    # Reset for display
                     df_last_3_years.reset_index(inplace=True)
                     df_last_3_years["index"] = df_last_3_years["index"].dt.strftime("%m/%d/%Y")
                     df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
-                    # -----------------------------------------------
-                    #  (Optional) Display with commas in the table
-                    # -----------------------------------------------
-                    df_display = df_last_3_years.copy()
-                    # Format the numeric column with commas
-                    # (This will not affect the CSV data, which remains numeric)
-                    df_display[series["title"]] = df_display[series["title"]].map("{:,.0f}".format)
-
                     st.subheader(f"Last 3 Years of Data for {series['title']}")
-                    st.table(df_display)
+                    st.table(df_last_3_years)
 
-                    # -----------------------------------------------
-                    #  CSV / Excel downloads (numeric data)
-                    # -----------------------------------------------
                     csv_data = convert_df_to_csv(df_last_3_years)
                     excel_data = convert_df_to_excel(df_last_3_years)
 
@@ -309,17 +286,25 @@ elif "series" in selected_data:  # Employment and other multi-series indicators
         else:
             st.warning(f"Could not retrieve data for {series['title']}.")
 
-elif "id" in selected_data:  # Single-series indicators (GDP, 10-Yr Yield, S&P 500, etc.)
+elif "id" in selected_data:  # Handle single-series indicators (e.g., GDP, 10-Year Yield, S&P 500)
     st.subheader(selected_data["title"])
 
     df = get_fred_data(selected_data["id"], selected_data["title"])
     if df is not None:
+        # -------------------------------------------------------------
+        # Forward-fill if it's DGS10 (10Y Treasury) or SP500
+        # -------------------------------------------------------------
+        if selected_data["id"] in ["DGS10", "SP500"]:
+            df.fillna(method="ffill", inplace=True)
+
+        # Filter data by the timeline selector
         df_filtered = df[
             (df.index >= pd.to_datetime(start_date)) &
             (df.index <= pd.to_datetime(end_date))
         ]
 
         if not df_filtered.empty:
+            # Add a chart type selector
             chart_type = st.radio(
                 "Select Chart Type",
                 options=["Line Chart", "Bar Chart"],
@@ -327,11 +312,64 @@ elif "id" in selected_data:  # Single-series indicators (GDP, 10-Yr Yield, S&P 5
                 horizontal=True,
             )
 
+            # -------------------------------------------------------------
+            # If this is SP500, compute 50-day and 200-day SMAs
+            # -------------------------------------------------------------
+            if selected_data["id"] == "SP500":
+                df_filtered["SMA_50"] = df_filtered[selected_data["title"]].rolling(window=50).mean()
+                df_filtered["SMA_200"] = df_filtered[selected_data["title"]].rolling(window=200).mean()
+
             fig = go.Figure()
+
             if chart_type == "Line Chart":
-                fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[selected_data["title"]], mode='lines'))
-            elif chart_type == "Bar Chart":
-                fig.add_trace(go.Bar(x=df_filtered.index, y=df_filtered[selected_data["title"]]))
+                # Main data line
+                fig.add_trace(go.Scatter(
+                    x=df_filtered.index,
+                    y=df_filtered[selected_data["title"]],
+                    mode='lines',
+                    name=selected_data["title"]
+                ))
+
+                # If SP500, add SMA lines
+                if selected_data["id"] == "SP500":
+                    fig.add_trace(go.Scatter(
+                        x=df_filtered.index,
+                        y=df_filtered["SMA_50"],
+                        mode='lines',
+                        line=dict(color='green'),
+                        name='SMA (50-day)'
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=df_filtered.index,
+                        y=df_filtered["SMA_200"],
+                        mode='lines',
+                        line=dict(color='red'),
+                        name='SMA (200-day)'
+                    ))
+
+            else:  # Bar Chart
+                # Main data as bar
+                fig.add_trace(go.Bar(
+                    x=df_filtered.index,
+                    y=df_filtered[selected_data["title"]],
+                    name=selected_data["title"]
+                ))
+                # If SP500, overlay SMA lines
+                if selected_data["id"] == "SP500":
+                    fig.add_trace(go.Scatter(
+                        x=df_filtered.index,
+                        y=df_filtered["SMA_50"],
+                        mode='lines',
+                        line=dict(color='orange'),
+                        name='SMA (50-day)'
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=df_filtered.index,
+                        y=df_filtered["SMA_200"],
+                        mode='lines',
+                        line=dict(color='green'),
+                        name='SMA (200-day)'
+                    ))
 
             fig.update_layout(
                 title=selected_data["title"],
@@ -341,7 +379,7 @@ elif "id" in selected_data:  # Single-series indicators (GDP, 10-Yr Yield, S&P 5
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            # Last 3 years
+            # Filter for last 3 years and sort most recent to oldest
             df_last_3_years = df[df.index >= three_years_ago]
             df_last_3_years = df_last_3_years.sort_index(ascending=False)
             df_last_3_years.reset_index(inplace=True)
