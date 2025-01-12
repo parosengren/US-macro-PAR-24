@@ -32,6 +32,25 @@ def calculate_cpi_yoy(df, title):
         st.error(f"Error calculating YoY for {title}: {e}")
         return None
 
+############################################################################
+# NEW FUNCTION: Calculates the monthly (1-month) difference of Nonfarm Payrolls
+############################################################################
+def calculate_monthly_change(df, title):
+    """
+    Resample to monthly (start of month), take the last data point each month,
+    then compute the month-to-month difference.
+    """
+    try:
+        # Resample to monthly frequency and take the last value in each month
+        df_m = df.resample('MS').last()
+        # Compute the 1-month difference
+        df_diff = df_m.diff()
+        df_diff.columns = [title]
+        return df_diff
+    except Exception as e:
+        st.error(f"Error calculating monthly change for {title}: {e}")
+        return None
+
 @st.cache_data
 def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8')
@@ -65,7 +84,9 @@ indicators = {
     "GDP": {"id": "A191RL1Q225SBEA", "title": "Real GDP (SAAR)"},
     "Employment": {
         "series": [
-            {"id": "PAYEMS", "title": "Nonfarm Payrolls (Thousands)"},
+            {"id": "PAYEMS", "title": "Total Jobs Added (Nonfarm Payrolls)"},
+            {"id": "PAYEMS", "title": "Monthly Change in Nonfarm Payrolls",
+                "monthly_func": calculate_monthly_change},
             {"id": "UNRATE", "title": "Unemployment Rate (%)"},
         ]
     },
@@ -182,7 +203,6 @@ if selected_indicator == "Inflation - CPI":  # Handle combined CPI case
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-
 elif "series" in selected_data:  # Handle Employment and other series-based indicators
     for series in selected_data["series"]:
         st.subheader(series["title"])
@@ -192,14 +212,20 @@ elif "series" in selected_data:  # Handle Employment and other series-based indi
             # Filter data by the timeline selector
             df_filtered = df[(df.index >= pd.to_datetime(start_date)) & (df.index <= pd.to_datetime(end_date))]
 
-            if not df_filtered.empty:
+            #############################################################
+            # If there is a custom "monthly_func", apply it (just like yoy_func).
+            #############################################################
+            if "monthly_func" in series:
+                df_filtered = series["monthly_func"](df_filtered, series["title"])
+
+            if df_filtered is not None and not df_filtered.empty:
                 # Add a chart type selector
                 chart_type = st.radio(
                     f"Select Chart Type for {series['title']}",
                     options=["Line Chart", "Bar Chart"],
                     index=0,  # Default to Line Chart
                     horizontal=True,
-                    key=f"chart_type_{series['id']}",
+                    key=f"chart_type_{series['id']}_{series['title']}",
                 )
 
                 # Create the chart based on the selected type
@@ -247,6 +273,7 @@ elif "series" in selected_data:  # Handle Employment and other series-based indi
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
             else:
+                # If df_filtered is empty or None
                 st.warning(f"No data available for {series['title']} within the selected date range.")
         else:
             st.warning(f"Could not retrieve data for {series['title']}.")
