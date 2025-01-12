@@ -153,7 +153,7 @@ if selected_indicator == "Inflation - CPI":
     cpi_df = None
     core_cpi_df = None
 
-    # Loop over "CPI (y/y)" and "Core CPI (y/y)"
+    # 1) Build the combined YoY chart (CPI & Core CPI)
     for series in selected_data["series"]:
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
@@ -187,7 +187,7 @@ if selected_indicator == "Inflation - CPI":
                         )
                     )
 
-                # Prepare last 3 years (for table)
+                # Prepare last 3 years (for yoy table)
                 df_last_3_years = df[df.index >= three_years_ago]
                 if "yoy_func" in series:
                     df_last_3_years = series["yoy_func"](df_last_3_years, series["title"])
@@ -208,7 +208,7 @@ if selected_indicator == "Inflation - CPI":
         else:
             st.warning(f"Could not retrieve data for {series['title']}.")
 
-    # Display the main yoy chart
+    # 2) Display the main YoY chart
     if combined_fig.data:
         combined_fig.update_layout(
             title="CPI and Core CPI (y/y)",
@@ -218,31 +218,11 @@ if selected_indicator == "Inflation - CPI":
         )
         st.plotly_chart(combined_fig, use_container_width=True)
 
-    # Display yoy tables
-    for title, df_last_3_years in data_frames:
-        st.subheader(f"Last 3 Years of Data for {title} (YoY)")
-        st.dataframe(df_last_3_years, height=300)
-
-        csv_data = convert_df_to_csv(df_last_3_years)
-        excel_data = convert_df_to_excel(df_last_3_years)
-
-        st.download_button(
-            label=f"Download {title} as CSV",
-            data=csv_data,
-            file_name=f"{title.replace(' ', '_')}_last_3_years.csv",
-            mime="text/csv",
-        )
-        st.download_button(
-            label=f"Download {title} as Excel",
-            data=excel_data,
-            file_name=f"{title.replace(' ', '_')}_last_3_years.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
     # --------------------------------------------------------------------
-    # NEW: Additional Charts for 3m & 6m Annualized CPI and Core CPI
+    # 3) Display the new 3m & 6m Annualized CPI and Core CPI charts
+    #    (ABOVE the YoY tables)
     # --------------------------------------------------------------------
-    # 1) CPI (3 & 6 Month Annualized)
+    # CPI (3 & 6 Month Annualized)
     if cpi_df is not None:
         cpi_filtered = cpi_df[
             (cpi_df.index >= pd.to_datetime(start_date)) &
@@ -269,7 +249,7 @@ if selected_indicator == "Inflation - CPI":
         )
         st.plotly_chart(cpi_annualized_fig, use_container_width=True)
 
-    # 2) Core CPI (3 & 6 Month Annualized)
+    # Core CPI (3 & 6 Month Annualized)
     if core_cpi_df is not None:
         core_cpi_filtered = core_cpi_df[
             (core_cpi_df.index >= pd.to_datetime(start_date)) &
@@ -295,6 +275,29 @@ if selected_indicator == "Inflation - CPI":
             yaxis=dict(autorange=True),
         )
         st.plotly_chart(core_annualized_fig, use_container_width=True)
+
+    # --------------------------------------------------------------------
+    # 4) Finally, display the YoY tables for CPI & Core CPI
+    # --------------------------------------------------------------------
+    for title, df_last_3_years in data_frames:
+        st.subheader(f"Last 3 Years of Data for {title} (YoY)")
+        st.dataframe(df_last_3_years, height=300)
+
+        csv_data = convert_df_to_csv(df_last_3_years)
+        excel_data = convert_df_to_excel(df_last_3_years)
+
+        st.download_button(
+            label=f"Download {title} as CSV",
+            data=csv_data,
+            file_name=f"{title.replace(' ', '_')}_last_3_years.csv",
+            mime="text/csv",
+        )
+        st.download_button(
+            label=f"Download {title} as Excel",
+            data=excel_data,
+            file_name=f"{title.replace(' ', '_')}_last_3_years.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
 ############################################################################
 # 2b. Multi-Series (Employment, etc.) 
