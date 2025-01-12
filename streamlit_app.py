@@ -9,6 +9,10 @@ FRED_API_KEY = "73d91c54519573fad1e3a2bb990af710"
 
 fred = fredapi.Fred(api_key=FRED_API_KEY)
 
+############################################################################
+# 1. Data Fetching / Utility Functions
+############################################################################
+
 @st.cache_data
 def get_fred_data(series_id, title):
     try:
@@ -24,6 +28,11 @@ def get_fred_data(series_id, title):
         return None
 
 def calculate_cpi_yoy(df, title):
+    """
+    Year-over-year inflation:
+    yoy = ((index / index.shift(12)) - 1)*100, 
+    using a monthly resample to ensure monthly frequency.
+    """
     try:
         df_yoy = df.resample('MS').last().pct_change(12) * 100
         df_yoy.columns = [title]
@@ -32,9 +41,6 @@ def calculate_cpi_yoy(df, title):
         st.error(f"Error calculating YoY for {title}: {e}")
         return None
 
-############################################################################
-# Calculates the monthly difference of Nonfarm Payrolls and multiplies by 1,000
-############################################################################
 def calculate_monthly_change(df, title):
     """
     Resample to monthly (start of month), take the last data point each month,
@@ -42,13 +48,26 @@ def calculate_monthly_change(df, title):
     """
     try:
         df_m = df.resample('MS').last()
-        # Compute the 1-month difference and multiply by 1000
         df_diff = df_m.diff() * 1000
         df_diff.columns = [title]
         return df_diff
     except Exception as e:
         st.error(f"Error calculating monthly change for {title}: {e}")
         return None
+
+def annualized_inflation_3m(df):
+    """
+    annualized 3-month inflation = ((CPI_t / CPI_{t-3})^(12/3) - 1)*100
+    """
+    result = (df / df.shift(3))**4 - 1
+    return result * 100
+
+def annualized_inflation_6m(df):
+    """
+    annualized 6-month inflation = ((CPI_t / CPI_{t-6})^(12/6) - 1)*100
+    """
+    result = (df / df.shift(6))**2 - 1
+    return result * 100
 
 @st.cache_data
 def convert_df_to_csv(df):
@@ -61,6 +80,10 @@ def convert_df_to_excel(df):
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Sheet1")
     return output.getvalue()
+
+############################################################################
+# 2. Streamlit App
+############################################################################
 
 st.set_page_config(page_title="US Macro Dashboard")
 st.title("US Macro Dashboard")
@@ -80,7 +103,7 @@ start_date, end_date = st.slider(
 
 # --- Available Indicators ---
 indicators = {
-    "GDP": {"id": "A191RL1Q225SBEA", "title": "Real GDP (SAAR)"},  # GDP ID
+    "GDP": {"id": "A191RL1Q225SBEA", "title": "Real GDP (SAAR)"},
     "Employment": {
         "series": [
             {
@@ -93,7 +116,7 @@ indicators = {
     },
     "Inflation - CPI": {
         "series": [
-            {"id": "CPIAUCSL", "title": "CPI (y/y)", "yoy_func": calculate_cpi_yoy},
+            {"id": "CPIAUCSL",  "title": "CPI (y/y)",      "yoy_func": calculate_cpi_yoy},
             {"id": "CPILFESL", "title": "Core CPI (y/y)", "yoy_func": calculate_cpi_yoy},
         ]
     },
@@ -110,14 +133,15 @@ selected_data = indicators[selected_indicator]
 
 three_years_ago = datetime.now() - timedelta(days=3 * 365)
 
-# -------------------------------------------------------------------------
-# 1) INFLATION (MULTI-SERIES) BLOCK
-# -------------------------------------------------------------------------
+############################################################################
+# 2a. Inflation (CPI + Core CPI) -> Multiple Series
+############################################################################
 if selected_indicator == "Inflation - CPI":
+    # Original chart type (Line vs. Bar) for the y/y charts
     chart_type = st.radio(
         "Select Chart Type for CPI Chart",
         options=["Line Chart", "Bar Chart"],
-        index=0,  # Default to Line Chart
+        index=0,  # Default to "Line Chart"
         horizontal=True,
         key="cpi_chart_type"
     )
@@ -125,17 +149,26 @@ if selected_indicator == "Inflation - CPI":
     combined_fig = go.Figure()
     data_frames = []
 
+    # We'll store the raw monthly data for CPI & Core CPI for the new 3/6m charts
+    cpi_df = None
+    core_cpi_df = None
+
+    # Loop over "CPI (y/y)" and "Core CPI (y/y)"
     for series in selected_data["series"]:
         df = get_fred_data(series["id"], series["title"])
         if df is not None:
+            # Filter to date range
             df_filtered = df[
                 (df.index >= pd.to_datetime(start_date)) &
                 (df.index <= pd.to_datetime(end_date))
             ]
+
+            # If yoy_func is present, transform for y/y inflation
             if "yoy_func" in series:
                 df_filtered = series["yoy_func"](df_filtered, series["title"])
 
             if df_filtered is not None and not df_filtered.empty:
+                # Add to combined_fig
                 if chart_type == "Line Chart":
                     combined_fig.add_trace(
                         go.Scatter(
@@ -153,6 +186,8 @@ if selected_indicator == "Inflation - CPI":
                             name=series["title"]
                         )
                     )
+
+                # Prepare last 3 years (for table)
                 df_last_3_years = df[df.index >= three_years_ago]
                 if "yoy_func" in series:
                     df_last_3_years = series["yoy_func"](df_last_3_years, series["title"])
@@ -164,11 +199,16 @@ if selected_indicator == "Inflation - CPI":
                     df_last_3_years["Datetime"] = df_last_3_years["Datetime"].dt.strftime("%m/%d/%Y")
                     df_last_3_years.rename(columns={"Datetime": "Date"}, inplace=True)
                     data_frames.append((series["title"], df_last_3_years))
-            else:
-                st.warning(f"No data available for {series['title']} within the selected date range.")
+
+            # Save the raw data for 3/6 month charts
+            if series["id"] == "CPIAUCSL":
+                cpi_df = df
+            elif series["id"] == "CPILFESL":
+                core_cpi_df = df
         else:
             st.warning(f"Could not retrieve data for {series['title']}.")
 
+    # Display the main yoy chart
     if combined_fig.data:
         combined_fig.update_layout(
             title="CPI and Core CPI (y/y)",
@@ -178,11 +218,9 @@ if selected_indicator == "Inflation - CPI":
         )
         st.plotly_chart(combined_fig, use_container_width=True)
 
+    # Display yoy tables
     for title, df_last_3_years in data_frames:
-        st.subheader(f"Last 3 Years of Data for {title}")
-        # ---------------------------
-        # Use st.dataframe(...) with height ~ 300
-        # ---------------------------
+        st.subheader(f"Last 3 Years of Data for {title} (YoY)")
         st.dataframe(df_last_3_years, height=300)
 
         csv_data = convert_df_to_csv(df_last_3_years)
@@ -194,7 +232,6 @@ if selected_indicator == "Inflation - CPI":
             file_name=f"{title.replace(' ', '_')}_last_3_years.csv",
             mime="text/csv",
         )
-
         st.download_button(
             label=f"Download {title} as Excel",
             data=excel_data,
@@ -202,9 +239,66 @@ if selected_indicator == "Inflation - CPI":
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-# -------------------------------------------------------------------------
-# 2) MULTI-SERIES (EMPLOYMENT, ETC.)
-# -------------------------------------------------------------------------
+    # --------------------------------------------------------------------
+    # NEW: Additional Charts for 3m & 6m Annualized CPI and Core CPI
+    # --------------------------------------------------------------------
+    # 1) CPI (3 & 6 Month Annualized)
+    if cpi_df is not None:
+        cpi_filtered = cpi_df[
+            (cpi_df.index >= pd.to_datetime(start_date)) &
+            (cpi_df.index <= pd.to_datetime(end_date))
+        ].resample('MS').last()
+
+        cpi_3m = annualized_inflation_3m(cpi_filtered)
+        cpi_6m = annualized_inflation_6m(cpi_filtered)
+
+        cpi_annualized_fig = go.Figure()
+        cpi_annualized_fig.add_trace(go.Scatter(
+            x=cpi_3m.index, y=cpi_3m.iloc[:,0],
+            mode='lines', name="CPI (3m Ann.)"
+        ))
+        cpi_annualized_fig.add_trace(go.Scatter(
+            x=cpi_6m.index, y=cpi_6m.iloc[:,0],
+            mode='lines', name="CPI (6m Ann.)"
+        ))
+        cpi_annualized_fig.update_layout(
+            title="CPI (3 & 6 Month Annualized)",
+            xaxis_title="Date",
+            yaxis_title="Annualized Inflation (%)",
+            yaxis=dict(autorange=True),
+        )
+        st.plotly_chart(cpi_annualized_fig, use_container_width=True)
+
+    # 2) Core CPI (3 & 6 Month Annualized)
+    if core_cpi_df is not None:
+        core_cpi_filtered = core_cpi_df[
+            (core_cpi_df.index >= pd.to_datetime(start_date)) &
+            (core_cpi_df.index <= pd.to_datetime(end_date))
+        ].resample('MS').last()
+
+        core_3m = annualized_inflation_3m(core_cpi_filtered)
+        core_6m = annualized_inflation_6m(core_cpi_filtered)
+
+        core_annualized_fig = go.Figure()
+        core_annualized_fig.add_trace(go.Scatter(
+            x=core_3m.index, y=core_3m.iloc[:,0],
+            mode='lines', name="Core CPI (3m Ann.)"
+        ))
+        core_annualized_fig.add_trace(go.Scatter(
+            x=core_6m.index, y=core_6m.iloc[:,0],
+            mode='lines', name="Core CPI (6m Ann.)"
+        ))
+        core_annualized_fig.update_layout(
+            title="Core CPI (3 & 6 Month Annualized)",
+            xaxis_title="Date",
+            yaxis_title="Annualized Inflation (%)",
+            yaxis=dict(autorange=True),
+        )
+        st.plotly_chart(core_annualized_fig, use_container_width=True)
+
+############################################################################
+# 2b. Multi-Series (Employment, etc.) 
+############################################################################
 elif "series" in selected_data:  # e.g. "Employment"
     for series in selected_data["series"]:
         st.subheader(series["title"])
@@ -216,7 +310,7 @@ elif "series" in selected_data:  # e.g. "Employment"
                 (df.index <= pd.to_datetime(end_date))
             ]
 
-            # If there's a custom monthly_func (PAYEMS), apply it
+            # If there's a custom monthly_func (e.g. PAYEMS)
             if "monthly_func" in series:
                 df_filtered = series["monthly_func"](df_filtered, series["title"])
 
@@ -259,9 +353,6 @@ elif "series" in selected_data:  # e.g. "Employment"
                     df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
                     st.subheader(f"Last 3 Years of Data for {series['title']}")
-                    # ---------------------------
-                    # st.dataframe(...) with height ~ 300
-                    # ---------------------------
                     st.dataframe(df_last_3_years, height=300)
 
                     csv_data = convert_df_to_csv(df_last_3_years)
@@ -273,7 +364,6 @@ elif "series" in selected_data:  # e.g. "Employment"
                         file_name=f"{series['title'].replace(' ', '_')}_last_3_years.csv",
                         mime="text/csv",
                     )
-
                     st.download_button(
                         label=f"Download {series['title']} as Excel",
                         data=excel_data,
@@ -287,9 +377,9 @@ elif "series" in selected_data:  # e.g. "Employment"
         else:
             st.warning(f"Could not retrieve data for {series['title']}.")
 
-# -------------------------------------------------------------------------
-# 3) SINGLE-SERIES (GDP, 10Y TREASURY, S&P 500)
-# -------------------------------------------------------------------------
+############################################################################
+# 2c. Single-Series (GDP, 10Y Treasury, S&P 500)
+############################################################################
 elif "id" in selected_data:
     st.subheader(selected_data["title"])
 
@@ -351,7 +441,6 @@ elif "id" in selected_data:
                     ))
 
             else:  # Bar Chart
-                # Main data as bar
                 fig.add_trace(go.Bar(
                     x=df_filtered.index,
                     y=df_filtered[selected_data["title"]],
@@ -382,6 +471,7 @@ elif "id" in selected_data:
             )
             st.plotly_chart(fig, use_container_width=True)
 
+            # Last 3 years table
             df_last_3_years = df[df.index >= three_years_ago]
             df_last_3_years = df_last_3_years.sort_index(ascending=False)
             df_last_3_years.reset_index(inplace=True)
@@ -389,9 +479,6 @@ elif "id" in selected_data:
             df_last_3_years.rename(columns={"index": "Date"}, inplace=True)
 
             st.subheader(f"Last 3 Years of Data for {selected_data['title']}")
-            # ---------------------------
-            # st.dataframe(...) with height ~ 300
-            # ---------------------------
             st.dataframe(df_last_3_years, height=300)
 
             csv_data = convert_df_to_csv(df_last_3_years)
