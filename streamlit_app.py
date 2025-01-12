@@ -97,7 +97,7 @@ indicators = {
             {"id": "CPILFESL", "title": "Core CPI (y/y)", "yoy_func": calculate_cpi_yoy},
         ]
     },
-    "10-Year Treasury Yield": {"id": "GS10", "title": "10-Year Treasury Yield (%)"},
+    "10-Year Treasury Yield": {"id": "DGS10", "title": "10-Year Treasury Yield (%)"},
     "S&P 500": {"id": "SP500", "title": "S&P 500"},
 }
 
